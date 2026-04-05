@@ -5,7 +5,6 @@ import { Menu, X, Home, Briefcase, Mail, Sun, Moon, ChevronLeft } from 'lucide-r
 
 export default function AnimatedMenuComponent() {
   const [isOpen, setIsOpen] = useState(false);
-  const [isDark, setIsDark] = useState(false);
   const dragX = useMotionValue(0);
   const dragOpacity = useTransform(dragX, [-200, 0], [0, 1]);
 
@@ -90,7 +89,7 @@ export default function AnimatedMenuComponent() {
               <path
                 d="M 40 0 L 0 0 0 40"
                 fill="none"
-                stroke={isDark ? 'rgba(80, 135, 110, 0.15)' : 'rgba(39, 93, 76, 0.12)'}
+                stroke="rgba(39, 93, 76, 0.12)"
                 strokeWidth="1"
               />
             </pattern>
@@ -100,12 +99,12 @@ export default function AnimatedMenuComponent() {
       </div>
 
       {/* Header */}
-      <header className="relative z-20 px-6 py-4 flex items-center justify-between">
+      <header className="relative z-20 px-6 py-4 flex items-center justify-center">
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={() => setIsOpen(!isOpen)}
-          className="p-3 rounded-3xl bg-white/90 text-slate-900 shadow-xl shadow-slate-200 transition hover:bg-white"
+          className="absolute left-6 p-3 rounded-3xl bg-white/90 text-slate-900 shadow-xl shadow-slate-200 transition hover:bg-white"
         >
           {isOpen ? <X size={24} /> : <Menu size={24} />}
         </motion.button>
@@ -118,15 +117,6 @@ export default function AnimatedMenuComponent() {
           <h1 className="text-2xl font-bold text-slate-900">ClawGuard</h1>
           <p className="text-sm text-slate-600">Paper trading · AI enforced</p>
         </motion.div>
-
-        <motion.button
-          whileHover={{ scale: 1.05, rotate: 8 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => setIsDark(!isDark)}
-          className="p-3 rounded-3xl bg-[#93BFC7]/90 text-slate-900 shadow-xl shadow-slate-200 transition hover:bg-[#93BFC7]"
-        >
-          {isDark ? <Sun size={24} /> : <Moon size={24} />}
-        </motion.button>
       </header>
 
       {/* Overlay */}
@@ -163,11 +153,7 @@ export default function AnimatedMenuComponent() {
           whileHover={{ scale: 1.1, rotate: 90 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => setIsOpen(false)}
-          className={`absolute top-6 right-6 p-2 rounded-full transition-colors ${
-            isDark
-              ? 'bg-gray-700 text-white hover:bg-gray-600'
-              : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-          }`}
+          className="absolute top-6 right-6 p-2 rounded-full bg-gray-100 text-gray-900 hover:bg-gray-200"
         >
           <X size={24} />
         </motion.button>
@@ -179,7 +165,7 @@ export default function AnimatedMenuComponent() {
         >
           <ChevronLeft 
             size={32} 
-            className={`${isDark ? 'text-gray-600' : 'text-gray-400'}`}
+            className="text-gray-400"
           />
         </motion.div>
 
@@ -238,12 +224,12 @@ export default function AnimatedMenuComponent() {
       </motion.nav>
 
       {/* Main Content */}
-      <main className="relative z-10 px-6 py-12 max-w-4xl mx-auto">
+      <main className="relative z-10 px-6 py-12 w-full mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-          className="p-8 rounded-[36px] shadow-[0_40px_120px_-70px_rgba(58,94,89,0.45)] bg-white/90 text-slate-900"
+          className="w-full text-slate-900"
         >
           <Outlet />
         </motion.div>

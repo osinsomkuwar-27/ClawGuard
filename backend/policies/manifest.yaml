@@ -1,0 +1,66 @@
+version: "2.0"
+manifest_id: "armorClaw-financial-v2"
+
+policies:
+
+  - id: no_data_exfiltration
+    description: "Agents may never send data to external systems."
+    applies_to: ["action"]
+    rule:
+      type: blacklist
+      field: action
+      blocked: ["EXFILTRATE", "EXPORT", "SEND", "POST_EXTERNAL"]
+    on_violation:
+      decision: BLOCK
+      reason: "Action '{action}' attempts data exfiltration. Strictly prohibited."
+      severity: CRITICAL
+
+  - id: trade_scope
+    description: "Only BUY, SELL, RESEARCH actions permitted."
+    applies_to: ["action"]
+    rule:
+      type: whitelist
+      field: action
+      allowed: ["BUY", "SELL", "RESEARCH"]
+    on_violation:
+      decision: BLOCK
+      reason: "Action '{action}' is not permitted."
+      severity: HIGH
+
+  - id: ticker_allowlist
+    description: "Only AAPL, MSFT, GOOGL approved for trading."
+    applies_to: ["action"]
+    rule:
+      type: whitelist
+      field: ticker
+      allowed: ["AAPL", "MSFT", "GOOGL"]
+      skip_if_action: ["RESEARCH", "EXFILTRATE"]
+    on_violation:
+      decision: BLOCK
+      reason: "Ticker '{ticker}' is not on the approved list."
+      severity: HIGH
+
+  - id: max_trade_size
+    description: "No single trade may exceed $500."
+    applies_to: ["action"]
+    rule:
+      type: threshold
+      field: total_usd
+      operator: lte
+      value: 500
+    on_violation:
+      decision: BLOCK
+      reason: "Trade value ${total_usd} exceeds maximum allowed ($500)."
+      severity: HIGH
+
+  - id: paper_trading_only
+    description: "Only paper trading environment allowed."
+    applies_to: ["metadata"]
+    rule:
+      type: whitelist
+      field: environment
+      allowed: ["paper", "simulation", "test"]
+    on_violation:
+      decision: BLOCK
+      reason: "Environment '{environment}' not permitted. Paper trading only."
+      severity: CRITICAL

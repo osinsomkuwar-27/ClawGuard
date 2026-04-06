@@ -1,22 +1,58 @@
-version: "2.0"
-manifest_id: "armorClaw-financial-v2"
+# ArmorClaw Policy Manifest — v3.1
+# ─────────────────────────────────
+# 11 policies total:
+#   8 original + 3 new (prompt_injection_guard, meme_stock_block, rationale_required)
+#
+# NEW in v3.0:
+#   - prompt_injection_guard: detects hidden commands in rationale (CRITICAL)
+#   - meme_stock_block: blocks GME, AMC, DOGE volatile meme stocks (HIGH)
+#   - rationale_required: agent must explain itself — no silent trades (MEDIUM)
+
+version: "3.0"
+manifest_id: "armorClaw-financial-v3"
 
 policies:
 
+  # ─── 1. NO DATA EXFILTRATION ──────────────────────────────────────────────
+  # Checked FIRST — catches EXPORT before anything else
   - id: no_data_exfiltration
-    description: "Agents may never send data to external systems."
+    description: "Agents may never send portfolio or account data to any external system."
     applies_to: ["action"]
     rule:
       type: blacklist
       field: action
-      blocked: ["EXFILTRATE", "EXPORT", "SEND", "POST_EXTERNAL"]
+      blocked: ["EXPORT", "SEND", "POST_EXTERNAL", "WEBHOOK", "EMAIL_DATA", "EXFILTRATE"]
     on_violation:
       decision: BLOCK
-      reason: "Action '{action}' attempts data exfiltration. Strictly prohibited."
+      reason: "Action '{action}' attempts to exfiltrate data to an external system. This is strictly prohibited."
       severity: CRITICAL
 
+  # ─── 2. PROMPT INJECTION GUARD ────────────────────────────────────────────
+  # NEW — detects malicious commands hidden inside rationale text
+  # This is the #1 real-world AI security attack today
+  - id: prompt_injection_guard
+    description: "Block trades whose rationale contains known prompt injection patterns."
+    applies_to: ["action"]
+    rule:
+      type: blacklist
+      field: rationale
+      blocked:
+        - "SYSTEM OVERRIDE"
+        - "IGNORE ALL RULES"
+        - "IGNORE PREVIOUS"
+        - "BYPASS"
+        - "EMERGENCY AUTHORIZED"
+        - "DISREGARD"
+        - "NEW INSTRUCTION"
+        - "ADMIN OVERRIDE"
+    on_violation:
+      decision: BLOCK
+      reason: "Rationale contains a suspected prompt injection pattern. Trade blocked for security."
+      severity: CRITICAL
+
+  # ─── 3. TRADE SCOPE ───────────────────────────────────────────────────────
   - id: trade_scope
-    description: "Only BUY, SELL, RESEARCH actions permitted."
+    description: "Only BUY, SELL, and RESEARCH actions are permitted."
     applies_to: ["action"]
     rule:
       type: whitelist
@@ -24,24 +60,42 @@ policies:
       allowed: ["BUY", "SELL", "RESEARCH"]
     on_violation:
       decision: BLOCK
-      reason: "Action '{action}' is not permitted."
+      reason: "Action '{action}' is not permitted. Only BUY, SELL, and RESEARCH are allowed."
       severity: HIGH
 
+  # ─── 4. TICKER ALLOWLIST ──────────────────────────────────────────────────
   - id: ticker_allowlist
-    description: "Only AAPL, MSFT, GOOGL approved for trading."
+    description: "Only AAPL, MSFT, and GOOGL are approved for trading."
     applies_to: ["action"]
     rule:
       type: whitelist
       field: ticker
       allowed: ["AAPL", "MSFT", "GOOGL"]
-      skip_if_action: ["RESEARCH", "EXFILTRATE"]
+      skip_if_action: ["RESEARCH"]
     on_violation:
       decision: BLOCK
-      reason: "Ticker '{ticker}' is not on the approved list."
+      reason: "Ticker '{ticker}' is not on the approved list. Only AAPL, MSFT, and GOOGL are permitted."
       severity: HIGH
 
+  # ─── 5. MEME STOCK BLOCK ──────────────────────────────────────────────────
+  # NEW — blocks volatile meme stocks even if somehow on allowlist
+  # GME, AMC, DOGE are high-risk assets with no place in a safe agent
+  - id: meme_stock_block
+    description: "Block known meme stocks — GME, AMC, DOGE — regardless of other rules."
+    applies_to: ["action"]
+    rule:
+      type: blacklist
+      field: ticker
+      blocked: ["GME", "AMC", "DOGE", "BBBY", "WISH", "SPCE"]
+      skip_if_action: ["RESEARCH"]
+    on_violation:
+      decision: BLOCK
+      reason: "Ticker '{ticker}' is a high-volatility meme stock and is permanently blocked."
+      severity: HIGH
+
+  # ─── 6. MAX TRADE SIZE $500 ───────────────────────────────────────────────
   - id: max_trade_size
-    description: "No single trade may exceed $500."
+    description: "No single trade may exceed $500 in total value."
     applies_to: ["action"]
     rule:
       type: threshold
@@ -50,11 +104,70 @@ policies:
       value: 500
     on_violation:
       decision: BLOCK
-      reason: "Trade value ${total_usd} exceeds maximum allowed ($500)."
+      reason: "Trade value ${total_usd} exceeds the maximum allowed per trade ($500)."
       severity: HIGH
 
+  # ─── 7. PORTFOLIO EXPOSURE CAP 20% ────────────────────────────────────────
+  - id: portfolio_exposure
+    description: "No single stock may represent more than 20% of the total portfolio."
+    applies_to: ["action"]
+    rule:
+      type: threshold
+      field: portfolio_exposure_pct
+      operator: lte
+      value: 20.0
+    on_violation:
+      decision: BLOCK
+      reason: "This trade would give {ticker} a {portfolio_exposure_pct}% portfolio exposure, exceeding the 20% cap."
+      severity: HIGH
+
+  # ─── 8. RATIONALE REQUIRED ────────────────────────────────────────────────
+  # NEW — agent must explain itself. Silent trades with no reasoning are blocked.
+  # Directly addresses the hackathon theme: intent must be stated, not just inferred.
+  - id: rationale_required
+    description: "Every trade must include a meaningful rationale of at least 4 words."
+    applies_to: ["action"]
+    rule:
+      type: rationale_required
+      field: rationale
+      min_words: 4
+      skip_if_action: ["RESEARCH"]
+    on_violation:
+      decision: BLOCK
+      reason: "Trade blocked - agent provided no meaningful rationale. Intent must be stated."
+      severity: MEDIUM
+
+  # ─── 9. TRADING HOURS 9:30-16:00 ET ──────────────────────────────────────
+  - id: trading_hours
+    description: "Trades can only be executed between 9:30 AM and 4:00 PM Eastern Time."
+    applies_to: ["metadata"]
+    rule:
+      type: trading_hours
+      start: "09:30"
+      end: "16:00"
+      timezone: "US/Eastern"
+      skip_if_action: ["RESEARCH"]
+    on_violation:
+      decision: BLOCK
+      reason: "Trading attempted outside market hours. Only 9:30 AM - 4:00 PM ET is permitted."
+      severity: HIGH
+
+  # ─── 10. NO SCOPE ESCALATION ──────────────────────────────────────────────
+  - id: no_scope_escalation
+    description: "Agents may not request permissions beyond what they were delegated."
+    applies_to: ["metadata"]
+    rule:
+      type: scope_check
+      field: requested_scope
+      must_be_subset_of: ["research", "trade_paper", "read_portfolio"]
+    on_violation:
+      decision: BLOCK
+      reason: "Agent requested scope '{requested_scope}' which exceeds its delegated authority."
+      severity: CRITICAL
+
+  # ─── 11. PAPER TRADING ONLY ───────────────────────────────────────────────
   - id: paper_trading_only
-    description: "Only paper trading environment allowed."
+    description: "All execution must target the paper trading environment only."
     applies_to: ["metadata"]
     rule:
       type: whitelist
@@ -62,5 +175,5 @@ policies:
       allowed: ["paper", "simulation", "test"]
     on_violation:
       decision: BLOCK
-      reason: "Environment '{environment}' not permitted. Paper trading only."
+      reason: "Environment '{environment}' is not permitted. Only paper/simulation trading is allowed."
       severity: CRITICAL

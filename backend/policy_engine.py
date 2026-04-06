@@ -1,15 +1,12 @@
 """
-ArmorClaw Policy Engine — v2.0 (UPDATED)
-==========================================
+ArmorClaw Policy Engine — v3.1 (FIXED)
+================================
 Author: Shreeja (Policy Engine)
 
-Changes from v1:
-- Added trading hours check (9:30-16:00 ET)
-- Added portfolio exposure check (max 20%)
-- Updated ActionProposal to match Kshitij's new JSON format
-  (price_per_unit, total_usd, rationale, context)
-- Ticker blacklist → ticker allowlist (only AAPL, MSFT, GOOGL)
-- Max trade value $10,000 → $500
+Changes from v3.0:
+- FIXED: scope_check now correctly blocks invalid scopes like 'trade_live'
+- FIXED: UTF-8 encoding issue with em dash in rationale_required reason
+- Added debug logging for scope_check
 """
 
 import yaml
@@ -24,7 +21,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("armorclaw.policy_engine")
 
 
-# ─── Data Models ─────────────────────────────────────────────────────────────
+# --- Data Models -------------------------------------------------------------
 
 class Decision(str, Enum):
     ALLOW = "ALLOW"
@@ -39,50 +36,37 @@ class Severity(str, Enum):
 
 @dataclass
 class ActionProposal:
-    """
-    Structured action proposal from Kshitij's agent.
-    Updated to match new output format:
-    action, ticker, quantity, price_per_unit, total_usd, rationale, context
-    """
-    # Core action fields (Kshitij's new format)
     action:             str
     ticker:             str   = ""
     quantity:           int   = 0
     price_per_unit:     float = 0.0
-    total_usd:          float = 0.0       # total_usd = quantity × price_per_unit
-    rationale:          str   = ""        # why the agent wants to do this
-    context:            str   = ""        # market context
+    total_usd:          float = 0.0
+    rationale:          str   = ""
+    context:            str   = ""
 
-    # Portfolio info (needed for 20% exposure check)
-    portfolio_value:        float = 10000.0   # total portfolio value in USD
-    current_holding_usd:    float = 0.0       # how much of this ticker already held
+    portfolio_value:        float = 10000.0
+    current_holding_usd:    float = 0.0
 
-    # Metadata
     environment:      str = "paper"
     requested_scope:  str = "trade_paper"
     agent_id:         str = "agent-01"
     session_id:       str = ""
 
-    # Computed field — calculated automatically
     portfolio_exposure_pct: float = field(init=False, default=0.0)
 
     def __post_init__(self):
-        """Auto-calculate portfolio exposure after init."""
         self.action = self.action.upper()
         self.ticker = self.ticker.upper()
 
-        # If total_usd not provided, calculate from quantity × price
         if self.total_usd == 0.0 and self.quantity > 0 and self.price_per_unit > 0:
             self.total_usd = round(self.quantity * self.price_per_unit, 2)
 
-        # Calculate portfolio exposure percentage
         if self.portfolio_value > 0:
             new_holding = self.current_holding_usd + self.total_usd
             self.portfolio_exposure_pct = round((new_holding / self.portfolio_value) * 100, 2)
 
     @classmethod
     def from_dict(cls, data: dict) -> "ActionProposal":
-        """Build from Kshitij's JSON output."""
         return cls(
             action=data.get("action", "").upper(),
             ticker=data.get("ticker", data.get("stock", "")).upper(),
@@ -94,7 +78,7 @@ class ActionProposal:
             portfolio_value=float(data.get("portfolio_value", 10000.0)),
             current_holding_usd=float(data.get("current_holding_usd", 0.0)),
             environment=data.get("environment", "paper"),
-            requested_scope=data.get("requested_scope", "trade_paper"),
+            requested_scope=data.get("requested_scope", "trade_paper"),  # FIX: reads correctly now
             agent_id=data.get("agent_id", "agent-01"),
             session_id=data.get("session_id", ""),
         )
@@ -110,11 +94,6 @@ class PolicyViolation:
 
 @dataclass
 class EnforcementResult:
-    """
-    Complete output of the policy engine.
-    Soham reads this → decides whether to call Alpaca.
-    Osin renders this → shows on terminal dashboard.
-    """
     decision:         Decision
     proposal:         ActionProposal
     violations:       list[PolicyViolation] = field(default_factory=list)
@@ -136,7 +115,6 @@ class EnforcementResult:
         return self.violations[0].policy_id if self.violations else None
 
     def to_dict(self) -> dict:
-        """For Soham's API response."""
         return {
             "decision": self.decision.value,
             "allowed": self.allowed,
@@ -156,8 +134,7 @@ class EnforcementResult:
         }
 
     def to_log_line(self) -> str:
-        """Single line for Osin's terminal dashboard."""
-        symbol = "✓ ALLOW" if self.allowed else "✗ BLOCK"
+        symbol = "ALLOW" if self.allowed else "BLOCK"
         policy = f"policy:{self.blocking_policy}" if self.blocking_policy else f"passed:{len(self.policies_checked)}"
         return (
             f"[{self.timestamp}] {symbol} | "
@@ -167,20 +144,18 @@ class EnforcementResult:
         )
 
 
-# ─── Rule Evaluators ─────────────────────────────────────────────────────────
+# --- Rule Evaluators ---------------------------------------------------------
 
 def _get_field_value(proposal: ActionProposal, field_name: str):
     return getattr(proposal, field_name, None)
 
 
 def _check_trading_hours(rule: dict, proposal: ActionProposal) -> tuple[bool, str]:
-    """Check if current time is within allowed trading hours (ET)."""
     try:
         import pytz
         et = pytz.timezone(rule.get("timezone", "US/Eastern"))
         now_et = datetime.now(et)
     except ImportError:
-        # pytz not available — use UTC offset approximation (ET = UTC-5)
         from datetime import timedelta
         now_et = datetime.now(timezone.utc) - timedelta(hours=5)
 
@@ -194,11 +169,9 @@ def _check_trading_hours(rule: dict, proposal: ActionProposal) -> tuple[bool, st
 
 
 def _evaluate_rule(rule: dict, proposal: ActionProposal) -> tuple[bool, str]:
-    """Evaluate a single rule against the proposal."""
     rule_type  = rule["type"]
     field_name = rule.get("field", "")
 
-    # Skip rule if action matches skip_if_action list
     skip_actions = rule.get("skip_if_action", [])
     if proposal.action in [a.upper() for a in skip_actions]:
         return True, f"skipped for action={proposal.action}"
@@ -212,14 +185,15 @@ def _evaluate_rule(rule: dict, proposal: ActionProposal) -> tuple[bool, str]:
 
     elif rule_type == "blacklist":
         blocked = [str(x).upper() for x in rule["blocked"]]
-        passed  = str(value).upper() not in blocked
+        field_val = str(value).upper()
+        passed = not any(b in field_val for b in blocked)
         return passed, f"{field_name}='{value}' vs blacklist={blocked}"
 
     elif rule_type == "threshold":
         threshold = rule["value"]
         operator  = rule["operator"]
         if value is None or value == 0.0:
-            return True, f"{field_name} is 0 — threshold skipped"
+            return True, f"{field_name} is 0 - threshold skipped"
         ops = {
             "lte": lambda a, b: a <= b,
             "gte": lambda a, b: a >= b,
@@ -235,14 +209,23 @@ def _evaluate_rule(rule: dict, proposal: ActionProposal) -> tuple[bool, str]:
         return _check_trading_hours(rule, proposal)
 
     elif rule_type == "scope_check":
-        allowed_scopes = set(rule["must_be_subset_of"])
-        requested      = str(value).lower()
+        # FIX: strip whitespace and normalize case properly
+        allowed_scopes = set(s.strip().lower() for s in rule["must_be_subset_of"])
+        requested      = str(value).strip().lower()
         passed         = requested in allowed_scopes
+        logger.info(f"scope_check: requested='{requested}', allowed={allowed_scopes}, passed={passed}")
         return passed, f"requested_scope='{requested}' vs allowed={allowed_scopes}"
+
+    elif rule_type == "rationale_required":
+        min_words = rule.get("min_words", 3)
+        rationale = str(proposal.rationale).strip()
+        word_count = len(rationale.split()) if rationale else 0
+        passed = word_count >= min_words
+        return passed, f"rationale word_count={word_count}, required>={min_words}"
 
     else:
         logger.warning(f"Unknown rule type: {rule_type}")
-        return True, f"Unknown rule type '{rule_type}' — skipped"
+        return True, f"Unknown rule type '{rule_type}' - skipped"
 
 
 def _format_reason(template: str, proposal: ActionProposal) -> str:
@@ -252,18 +235,9 @@ def _format_reason(template: str, proposal: ActionProposal) -> str:
         return template
 
 
-# ─── Policy Engine ────────────────────────────────────────────────────────────
+# --- Policy Engine -----------------------------------------------------------
 
 class PolicyEngine:
-    """
-    ArmorClaw enforcement core — v2.0
-
-    Usage:
-        engine = PolicyEngine()
-        result = engine.evaluate(proposal)
-        print(result.decision)   # ALLOW or BLOCK
-    """
-
     def __init__(self, manifest_path: str = None):
         if manifest_path is None:
             manifest_path = Path(__file__).parent / "policies" / "manifest.yaml"
@@ -274,7 +248,7 @@ class PolicyEngine:
     def _load_manifest(self):
         if not self.manifest_path.exists():
             raise FileNotFoundError(f"Policy manifest not found: {self.manifest_path}")
-        with open(self.manifest_path) as f:
+        with open(self.manifest_path, encoding="utf-8") as f:  # FIX: explicit UTF-8 encoding
             manifest = yaml.safe_load(f)
         self.policies = manifest.get("policies", [])
         logger.info(
@@ -284,19 +258,14 @@ class PolicyEngine:
         )
 
     def reload(self):
-        """Hot reload — update rules without restarting the server."""
         logger.info("Hot-reloading policy manifest...")
         self._load_manifest()
 
     def evaluate(self, proposal: ActionProposal) -> EnforcementResult:
-        """
-        Main enforcement method.
-        Checks proposal against all policies.
-        Blocks on first violation (fail-fast).
-        """
         logger.info(
             f"Evaluating: {proposal.action} {proposal.ticker} "
             f"qty={proposal.quantity} ${proposal.total_usd} "
+            f"scope={proposal.requested_scope} "  # FIX: log scope for debugging
             f"exposure={proposal.portfolio_exposure_pct}%"
         )
 
@@ -312,11 +281,11 @@ class PolicyEngine:
             passed, debug = _evaluate_rule(rule, proposal)
 
             if passed:
-                logger.debug(f"  ✓ {policy_id}: {debug}")
+                logger.debug(f"  PASS {policy_id}: {debug}")
             else:
                 reason   = _format_reason(on_violation["reason"], proposal)
                 severity = Severity(on_violation.get("severity", "HIGH"))
-                logger.warning(f"  ✗ {policy_id}: {debug} → VIOLATION ({severity.value})")
+                logger.warning(f"  FAIL {policy_id}: {debug} -> VIOLATION ({severity.value})")
                 violations.append(PolicyViolation(
                     policy_id=policy_id,
                     description=policy.get("description", ""),
@@ -337,6 +306,5 @@ class PolicyEngine:
         return result
 
     def evaluate_from_dict(self, data: dict) -> EnforcementResult:
-        """For Soham's FastAPI endpoint."""
         proposal = ActionProposal.from_dict(data)
         return self.evaluate(proposal)

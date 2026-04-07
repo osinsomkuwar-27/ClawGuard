@@ -1,8 +1,9 @@
+import { useState } from "react"
+
 const chips = [
   "buy $200 of AAPL",
   "sell 10 TSLA",
   "buy $10k of NVDA",
-  "buy 5M AMC",
   "buy $300 of MSFT limit",
 ]
 
@@ -31,6 +32,13 @@ const actionProposal = `{
 }`
 
 export default function PlaceTradePage() {
+  const [tradeGoal, setTradeGoal] = useState("buy $200 of AAPL at market price")
+
+  const handleSubmit = () => {
+    // Add submission or processing logic here
+    console.log("Trade goal submitted:", tradeGoal)
+  }
+
   return (
     <main className="min-h-screen bg-[#ECF4E8] px-4 py-8 text-slate-900 sm:px-8 lg:px-12">
       <div className="mx-auto flex max-w-7xl flex-col gap-8">
@@ -56,13 +64,42 @@ export default function PlaceTradePage() {
               <div className="rounded-[28px] bg-[#CBF3BB]/80 p-6 ring-1 ring-[#93BFC7]/30">
                 <p className="text-sm uppercase tracking-[0.28em] text-slate-600">Trade goal</p>
                 <div className="mt-4 rounded-3xl border border-slate-300/70 bg-white p-6 text-slate-900 shadow-sm">
-                  <p className="text-lg font-semibold">buy $200 of AAPL at market price</p>
+                  <label htmlFor="trade-goal-input" className="sr-only">
+                    Trade goal
+                  </label>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <input
+                      id="trade-goal-input"
+                      value={tradeGoal}
+                      onChange={(event) => setTradeGoal(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault()
+                          handleSubmit()
+                        }
+                      }}
+                      placeholder="buy $200 of AAPL at market price"
+                      className="flex-1 rounded-3xl border border-slate-200/80 bg-slate-50 px-4 py-3 text-lg font-semibold text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-[#93BFC7]/40"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSubmit}
+                      className="inline-flex h-12 items-center justify-center rounded-3xl bg-[#93BFC7] px-5 text-sm font-semibold text-slate-950 transition hover:bg-[#7eb0b2]"
+                    >
+                      Enter
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-6 flex flex-wrap gap-3">
                   {chips.map((item) => (
-                    <span key={item} className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm">
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => setTradeGoal(item)}
+                      className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-100"
+                    >
                       {item}
-                    </span>
+                    </button>
                   ))}
                 </div>
               </div>

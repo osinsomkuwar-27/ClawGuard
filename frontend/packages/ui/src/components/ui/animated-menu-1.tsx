@@ -12,7 +12,6 @@ export default function AnimatedMenuComponent() {
     { icon: Home, label: 'Overview', href: '/overview' },
     { icon: Briefcase, label: 'Portfolio', href: '/portfolio' },
     { icon: Sun, label: 'Place trade', href: '/place-trade' },
-    { icon: Mail, label: 'Decision feed', href: '/decision-feed' },
     { icon: Moon, label: 'Audit log', href: '/audit-log' },
     { icon: X, label: 'Policies', href: '/policies' },
   ];

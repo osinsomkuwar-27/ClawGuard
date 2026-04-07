@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from typing import Literal, Optional
 from datetime import datetime, timezone
@@ -80,6 +80,22 @@ def init_db():
     conn.close()
 
 init_db()
+
+
+@app.get("/")
+def root():
+    return {
+        "service": "ArmorClaw Backend v2.0",
+        "status": "ok",
+        "message": "API server is running. Open the frontend dev server for the UI.",
+        "docs": "/docs",
+        "health": "/health",
+    }
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return Response(status_code=204)
 
 def log_to_db(event_type: str, data: dict):
     conn = get_db()
@@ -204,6 +220,16 @@ async def agent_endpoint(req: AgentRequest):
         return {**proposal.model_dump(), "intent_token": token}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Agent error: {e}")
+
+
+@app.post("/intent")
+async def intent_endpoint(req: ProposalRequest):
+    return {
+        "intent_token": sign_intent(req.action, req.ticker, req.total_usd),
+        "action": req.action,
+        "ticker": req.ticker,
+        "total_usd": req.total_usd,
+    }
 
 
 @app.post("/execute")

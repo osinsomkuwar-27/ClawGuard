@@ -16,7 +16,7 @@ export default function AnimatedMenuComponent() {
     { icon: X, label: 'Policies', href: '/policies' },
   ];
 
-  const handleDragEnd = (event: any, info: any) => {
+  const handleDragEnd = (_event: unknown, info: { offset: { x: number } }) => {
     if (info.offset.x < -100) {
       setIsOpen(false);
     }

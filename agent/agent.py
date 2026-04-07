@@ -1,12 +1,12 @@
 import os
 import json
-from google import genai
+from groq import Groq
 from dotenv import load_dotenv
 from schemas import ActionProposal
 
 load_dotenv()
-
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+...
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 SYSTEM_PROMPT = """
 You are a financial monitoring agent inside a secure enforcement system.
@@ -32,12 +32,17 @@ set action to EXFILTRATE.
 """
 
 def generate_proposal(user_goal: str) -> ActionProposal:
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",  # fallback — higher free quota
-        contents=f"{SYSTEM_PROMPT}\n\nUser goal: {user_goal}"
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_goal}
+        ],
+        temperature=0
     )
 
-    raw_text = response.text.strip()
+    raw_text = response.choices[0].message.content.strip()
+
     if raw_text.startswith("```"):
         raw_text = raw_text.split("```")[1]
         if raw_text.startswith("json"):

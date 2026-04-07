@@ -1,12 +1,7 @@
-const actions = [
-  { tool: "place_order", detail: "BUY 50 NVDA @market", status: "Blocked", time: "12:04:31" },
-  { tool: "get_portfolio", detail: "Read positions snapshot", status: "Allowed", time: "12:04:28" },
-  { tool: "place_order", detail: "BUY 10 AAPL @limit 189.5", status: "Allowed", time: "12:04:22" },
-  { tool: "cancel_order", detail: "Cancel order #8812-B", status: "Allowed", time: "12:04:17" },
-  { tool: "place_order", detail: "SELL 200 TSLA @market", status: "Blocked", time: "12:04:09" },
-]
+import { useEffect, useState } from "react"
+import { api, type AuditLog, type AccountInfo } from "@/lib/api"
 
-const policies = [
+const staticPolicies = [
   { label: "Max order size", description: "Block trades > $5,000", active: true },
   { label: "No meme stocks", description: "Block AMC, GME, BBY...", active: true },
   { label: "Market hours only", description: "9:30 AM – 4:00 PM ET", active: true },
@@ -16,6 +11,28 @@ const policies = [
 ]
 
 export default function OverviewPage() {
+  const [logs, setLogs] = useState<AuditLog[]>([])
+  const [account, setAccount] = useState<AccountInfo | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    Promise.allSettled([api.logs(20), api.account()]).then(([logsRes, accountRes]) => {
+      if (logsRes.status === "fulfilled") setLogs(logsRes.value.logs)
+      if (accountRes.status === "fulfilled") setAccount(accountRes.value)
+      setLoading(false)
+    })
+  }, [])
+
+  const recentActions = logs.slice(0, 5)
+  const allowedCount = logs.filter((l) => l.allowed).length
+  const blockedCount = logs.filter((l) => !l.allowed).length
+  const approvalRate = logs.length ? Math.round((allowedCount / logs.length) * 100) : 0
+  const lastBlocked = logs.find((l) => !l.allowed)
+
+  const portfolioValue = account
+    ? `$${parseFloat(account.portfolio_value).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+    : loading ? "…" : "$—"
+
   return (
     <main className="min-h-screen px-6 py-10 sm:px-10">
       <div className="flex w-full flex-col gap-8">
@@ -35,19 +52,19 @@ export default function OverviewPage() {
             <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 max-w-4xl mx-auto">
               <div className="rounded-3xl bg-white p-4 text-slate-900 shadow-sm ring-1 ring-slate-200/70">
                 <p className="text-sm font-medium uppercase tracking-[0.25em] text-slate-500">Total actions</p>
-                <p className="mt-3 text-3xl font-semibold">10</p>
+                <p className="mt-3 text-3xl font-semibold">{loading ? "…" : logs.length}</p>
               </div>
               <div className="rounded-3xl bg-[#CBF3BB] p-4 text-slate-900 shadow-sm ring-1 ring-slate-200/70">
                 <p className="text-sm font-medium uppercase tracking-[0.25em] text-slate-500">Allowed</p>
-                <p className="mt-3 text-3xl font-semibold">5</p>
+                <p className="mt-3 text-3xl font-semibold">{loading ? "…" : allowedCount}</p>
               </div>
               <div className="rounded-3xl bg-[#ABE7B2] p-4 text-slate-900 shadow-sm ring-1 ring-slate-200/70">
                 <p className="text-sm font-medium uppercase tracking-[0.25em] text-slate-500">Blocked</p>
-                <p className="mt-3 text-3xl font-semibold">5</p>
+                <p className="mt-3 text-3xl font-semibold">{loading ? "…" : blockedCount}</p>
               </div>
               <div className="rounded-3xl bg-[#93BFC7] p-4 text-slate-950 shadow-sm ring-1 ring-slate-200/70">
                 <p className="text-sm font-medium uppercase tracking-[0.25em] text-slate-700">Portfolio value</p>
-                <p className="mt-3 text-3xl font-semibold">$10,360</p>
+                <p className="mt-3 text-3xl font-semibold">{portfolioValue}</p>
               </div>
             </div>
           </div>
@@ -66,18 +83,30 @@ export default function OverviewPage() {
                 </span>
               </div>
               <div className="mt-6 grid gap-3 w-full">
-                {actions.map((action) => (
-                  <div key={`${action.tool}-${action.time}`} className="rounded-3xl border border-slate-200/90 bg-slate-50 p-4 text-slate-900 shadow-sm w-full">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="text-sm font-medium text-slate-700">{action.tool}</p>
-                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${action.status === "Allowed" ? "bg-[#CBF3BB] text-emerald-900" : "bg-[#ABE7B2] text-emerald-900"}`}>
-                        {action.status}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-base text-slate-800">{action.detail}</p>
-                    <p className="mt-2 text-xs text-slate-500">{action.time}</p>
-                  </div>
-                ))}
+                {loading ? (
+                  <div className="flex items-center justify-center py-10 text-slate-400 text-sm">Loading feed…</div>
+                ) : recentActions.length === 0 ? (
+                  <div className="py-10 text-center text-sm text-slate-400">No recent actions.</div>
+                ) : (
+                  recentActions.map((entry) => {
+                    const status = entry.allowed ? "Allowed" : "Blocked"
+                    return (
+                      <div key={entry.id} className="rounded-3xl border border-slate-200/90 bg-slate-50 p-4 text-slate-900 shadow-sm w-full">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-slate-700">{entry.event_type}</p>
+                          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${status === "Allowed" ? "bg-[#CBF3BB] text-emerald-900" : "bg-[#FECACA] text-rose-900"}`}>
+                            {status}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-base text-slate-800">
+                          {entry.action} {entry.ticker ? `· ${entry.ticker}` : ""}
+                          {entry.amount ? ` · $${entry.amount}` : ""}
+                        </p>
+                        <p className="mt-2 text-xs text-slate-500">{new Date(entry.timestamp).toLocaleTimeString()}</p>
+                      </div>
+                    )
+                  })
+                )}
               </div>
             </div>
 
@@ -86,11 +115,11 @@ export default function OverviewPage() {
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
                 <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80">
                   <p className="text-sm text-slate-500">Policy violations</p>
-                  <p className="mt-3 text-2xl font-semibold text-slate-950">3</p>
+                  <p className="mt-3 text-2xl font-semibold text-slate-950">{loading ? "…" : blockedCount}</p>
                 </div>
                 <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80">
                   <p className="text-sm text-slate-500">Approval rate</p>
-                  <p className="mt-3 text-2xl font-semibold text-slate-950">50%</p>
+                  <p className="mt-3 text-2xl font-semibold text-slate-950">{loading ? "…" : `${approvalRate}%`}</p>
                 </div>
               </div>
             </div>
@@ -108,19 +137,34 @@ export default function OverviewPage() {
                 </span>
               </div>
               <div className="mt-6 rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200/80">
-                <p className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500">place_order</p>
-                <h3 className="mt-3 text-lg font-semibold text-slate-950">BUY 50 NVDA @ market — single-order value exceeded $5,000 threshold.</h3>
-                <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1">max-order-size</span>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1">Triggered at 12:04:31</span>
-                </div>
+                {loading ? (
+                  <p className="text-sm text-slate-400">Loading…</p>
+                ) : lastBlocked ? (
+                  <>
+                    <p className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500">{lastBlocked.event_type}</p>
+                    <h3 className="mt-3 text-lg font-semibold text-slate-950">
+                      {lastBlocked.action} {lastBlocked.ticker ? `${lastBlocked.ticker}` : ""}
+                      {lastBlocked.reason ? ` — ${lastBlocked.reason}` : ""}
+                    </h3>
+                    <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                      {lastBlocked.policy_id && (
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1">{lastBlocked.policy_id}</span>
+                      )}
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1">
+                        {new Date(lastBlocked.timestamp).toLocaleTimeString()}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-slate-400">No blocked actions found.</p>
+                )}
               </div>
             </div>
 
             <div className="rounded-[2rem] border border-slate-200/50 bg-[#93BFC7]/20 p-6 shadow-sm">
               <h2 className="text-xl font-semibold text-slate-950">Active policies</h2>
               <div className="mt-5 space-y-3">
-                {policies.map((policy) => (
+                {staticPolicies.map((policy) => (
                   <div key={policy.label} className={`rounded-3xl border p-4 ${policy.active ? "border-slate-300 bg-white" : "border-slate-200 bg-slate-50"}`}>
                     <div className="flex items-center justify-between gap-3">
                       <div>
